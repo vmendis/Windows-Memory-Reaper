@@ -5,10 +5,11 @@
   <trustInfo xmlns="urn:schemas-microsoft-com:asm.v2">
     <security>
       <requestedPrivileges xmlns="urn:schemas-microsoft-com:asm.v3">
-        <!-- The memory-cleaning operations may require elevated privileges.
-             Run elevated to give the cleaning operation a predictable
-             security context and avoid repeated UAC prompts. -->
-        <requestedExecutionLevel level="requireAdministrator" uiAccess="false" />
+        <!-- The tray application itself runs at medium integrity so its tray icon
+             is visible in the non-elevated shell (UIPI). The memory-cleaning
+             operations are executed by a separate elevated worker process that
+             is spawned on demand with a once-only UAC prompt (runas verb). -->
+        <requestedExecutionLevel level="asInvoker" uiAccess="false" />
       </requestedPrivileges>
     </security>
   </trustInfo>

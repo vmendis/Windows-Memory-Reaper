@@ -21,7 +21,7 @@ Working, trackable step-by-step plan for building the application described in
 | Tray icon | Generated programmatically (no external .ico asset) |
 | Config | `WindowsMemoryReaper.json` beside the EXE, via `System.Text.Json` source generator |
 | AOT | Deferred. WPF does **not** support Native AOT yet. Distribution is self-contained trimmed for win-x64. Migration path kept open (source-gen JSON, no reflection) |
-| Elevation | `app.manifest` with `requireAdministrator` |
+| Elevation | **Tray app runs asInvoker (medium integrity)** so the tray icon is visible. A once-only UAC (via `runas`) spawns a **persistent elevated worker** process that runs the RAMMap operations; the two processes communicate over a **named pipe**. This resolves the UIPI issue where an elevated tray app's icon is invisible in the non-elevated shell, while keeping the spec's "no repeated per-operation UAC prompts" and "no service / no scheduled task / no installer" constraints. |
 
 ## Project structure
 
@@ -32,18 +32,43 @@ Windows RAM Reaper/
     Development Plan.md                  (this file)
   src/WindowsMemoryReaper/
     WindowsMemoryReaper.csproj
-    Program.cs
-    App.xaml / App.xaml.cs
-    MainWindow.xaml / .cs                (hidden host window: single-instance + tray lifetime)
+    App.xaml / App.xaml.cs                (entry; branches tray vs --worker mode)
     SettingsWindow.xaml / .cs            (settings dialog)
-    app.manifest                          (requireAdministrator)
+    app.manifest                          (asInvoker + DPI awareness)
     Services/
       AppSettings.cs                      (model)
       SettingsStore.cs                    (load/save JSON beside EXE)
       RamMapService.cs                    (sequential 5-op cleanup engine)
       CleanupScheduler.cs                 (timer from completion)
       TrayIconController.cs               (tray icon, context menu, notifications)
+      WorkerBridge.cs                     (tray side: spawn/connect to elevated worker)
+      CleanupWorker.cs                    (elevated worker side: pipe loop + runs RAMMap)
+      PipeProtocol.cs                     (message DTOs + JSON context + length-prefixed framing)
 ```
+
+### Elevation architecture (worker + named pipe)
+
+```
+Tray process (medium integrity, asInvoker)          Worker process (high integrity, runas)
+──────────────────────────────────────────         ──────────────────────────────────────
+  CleanupScheduler / Clean Now                          loop until tray closes or PID dies
+       │                                                     │
+       │ WorkerBridge.RunCleanupAsync                        │
+       │   │ if no worker:                                   │
+       │   │   spawn self --worker --pipe=<name> ──UAC──►  ConnectAsync
+       │   │   WaitForConnectionAsync ◄────── Connected ────
+       │   │
+       │   ──── Write CleanRequest (len+JSON) ──────────►   read request
+       │   │                                               RamMapService (-Ew -Es -Em -Et -E0)
+       │   ◄── CleanReply (len+JSON) ────────────────      write reply
+       │   │
+       │   map reply → CleanupResult → notification
+```
+
+- Tray icon always visible (tray never elevated).
+- One UAC prompt at first worker spawn (app start, or first clean if declined then approved later).
+- Worker exits when the tray closes its pipe or when the tray PID dies.
+- Pipe messages are length-prefixed UTF-8 JSON via source-generated contexts.
 
 ---
 

@@ -60,6 +60,12 @@ public sealed class SettingsStore
     }
 
     /// <summary>
+    /// Returns true when the settings file already exists. On first run the app
+    /// persists the defaults so the JSON appears beside the EXE (spec 21).
+    /// </summary>
+    public bool FileExists() => File.Exists(_settingsPath);
+
+    /// <summary>
     /// Saves settings, writing the file if it does not exist.
     /// Throws <see cref="InvalidOperationException"/> when the directory is
     /// read-only or not writable, rather than silently storing elsewhere.

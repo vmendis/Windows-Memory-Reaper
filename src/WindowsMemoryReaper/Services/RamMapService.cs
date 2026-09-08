@@ -31,7 +31,7 @@ public sealed class RamMapService
     /// Runs a full cleanup cycle, launching each RAMMap operation and waiting for
     /// it to complete before starting the next. Never overlaps another cycle.
     /// </summary>
-    public async Task<CleanupResult> RunCleanupAsync(AppSettings settings, CancellationToken cancellationToken = default)
+    public async Task<CleanupResult> RunCleanupAsync(string? ramMapPath, CancellationToken cancellationToken = default)
     {
         lock (_gate)
         {
@@ -44,7 +44,7 @@ public sealed class RamMapService
 
         try
         {
-            return await RunCoreAsync(settings, cancellationToken).ConfigureAwait(false);
+            return await RunCoreAsync(ramMapPath, cancellationToken).ConfigureAwait(false);
         }
         finally
         {
@@ -55,10 +55,8 @@ public sealed class RamMapService
         }
     }
 
-    private async Task<CleanupResult> RunCoreAsync(AppSettings settings, CancellationToken cancellationToken)
+    private async Task<CleanupResult> RunCoreAsync(string? ramMapPath, CancellationToken cancellationToken)
     {
-        var ramMapPath = settings.RamMapPath;
-
         if (string.IsNullOrWhiteSpace(ramMapPath))
         {
             return new CleanupResult(CleanupResultKind.RamMapNotConfigured, 0, "RAMMap64.exe is not configured.");

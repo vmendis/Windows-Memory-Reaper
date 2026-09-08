@@ -9,7 +9,7 @@ namespace WindowsMemoryReaper.Services;
 /// </summary>
 public sealed class CleanupScheduler : IDisposable
 {
-    private readonly RamMapService _ramMap;
+    private readonly Func<string?, CancellationToken, Task<CleanupResult>> _clean;
     private readonly SettingsStore _settingsStore;
     private readonly object _gate = new();
 
@@ -21,9 +21,12 @@ public sealed class CleanupScheduler : IDisposable
     /// <summary>Fired after a cleanup cycle initiated by the scheduler completes.</summary>
     public event Action<CleanupResult>? CleanupCompleted;
 
-    public CleanupScheduler(RamMapService ramMap, SettingsStore settingsStore, AppSettings settings)
+    public CleanupScheduler(
+        Func<string?, CancellationToken, Task<CleanupResult>> clean,
+        SettingsStore settingsStore,
+        AppSettings settings)
     {
-        _ramMap = ramMap ?? throw new ArgumentNullException(nameof(ramMap));
+        _clean = clean ?? throw new ArgumentNullException(nameof(clean));
         _settingsStore = settingsStore ?? throw new ArgumentNullException(nameof(settingsStore));
         _settings = settings;
     }
@@ -34,7 +37,7 @@ public sealed class CleanupScheduler : IDisposable
         get { lock (_gate) return _settings; }
     }
 
-    /// <summary>The interval in minutes, if automatic cleaning is enabled and valid.</summary>
+    /// <summary>The interval to the next cleanup, when scheduled.</summary>
     public TimeSpan? NextDelay { get; private set; }
 
     /// <summary>Reloads settings and restarts (or stops) the timer accordingly.</summary>
@@ -69,19 +72,12 @@ public sealed class CleanupScheduler : IDisposable
             NextDelay = null;
 
             var settings = _settings;
-            if (!settings.AutomaticCleaningEnabled)
+            if (!SettingsValid(settings))
             {
                 return;
             }
 
-            var path = settings.RamMapPath;
-            if (string.IsNullOrWhiteSpace(path) || !File.Exists(path))
-            {
-                // RAMMap unavailable: automatic cleaning disabled until corrected (spec 15).
-                return;
-            }
-
-            var interval = TimeSpan.FromMinutes(Math.Max(1, settings.CleaningIntervalMinutes));
+            var interval = IntervalFromSettings(settings);
             NextDelay = interval;
             _timer = new System.Threading.Timer(OnTimerFired, null, interval, Timeout.InfiniteTimeSpan);
         }
@@ -106,23 +102,12 @@ public sealed class CleanupScheduler : IDisposable
                 settings = _settings;
             }
 
-            var result = await _ramMap.RunCleanupAsync(settings).ConfigureAwait(false);
+            var result = await _clean(settings.RamMapPath, CancellationToken.None).ConfigureAwait(false);
             CleanupCompleted?.Invoke(result);
 
-            lock (_gate)
-            {
-                if (result.Kind == CleanupResultKind.Completed)
-                {
-                    // Schedule next run only if auto-clean is still desired and RAMMap still valid.
-                    scheduleNext(settings, resultKind: CleanupResultKind.Completed);
-                }
-                else if (NeedsRetry(result.Kind))
-                {
-                    // Keep trying on a fixed backoff rather than hammering RAMMap (spec 15);
-                    // retry at the normal interval.
-                    scheduleNext(settings, resultKind: result.Kind);
-                }
-            }
+            // The interval is measured from completion, so always re-arm unless the
+            // scheduler was disposed or settings now make automatic cleaning invalid.
+            ScheduleNextIfApplicable();
         }
         finally
         {
@@ -133,30 +118,35 @@ public sealed class CleanupScheduler : IDisposable
         }
     }
 
-    private void scheduleNext(AppSettings settings, CleanupResultKind resultKind)
+    private void ScheduleNextIfApplicable()
     {
-        if (_disposed || !settings.AutomaticCleaningEnabled)
+        lock (_gate)
         {
-            return;
-        }
+            if (_disposed) return;
 
-        var path = settings.RamMapPath;
-        if (string.IsNullOrWhiteSpace(path) || !File.Exists(path))
-        {
-            NextDelay = null;
-            return;
-        }
+            var settings = _settings;
+            if (!SettingsValid(settings))
+            {
+                _timer?.Dispose();
+                _timer = null;
+                NextDelay = null;
+                return;
+            }
 
-        var interval = TimeSpan.FromMinutes(Math.Max(1, settings.CleaningIntervalMinutes));
-        NextDelay = interval;
-        _timer?.Dispose();
-        _timer = new System.Threading.Timer(OnTimerFired, null, interval, Timeout.InfiniteTimeSpan);
+            var interval = IntervalFromSettings(settings);
+            NextDelay = interval;
+            _timer?.Dispose();
+            _timer = new System.Threading.Timer(OnTimerFired, null, interval, Timeout.InfiniteTimeSpan);
+        }
     }
 
-    private static bool NeedsRetry(CleanupResultKind kind)
-        => kind is CleanupResultKind.TimedOut
-            or CleanupResultKind.Failed
-            or CleanupResultKind.RamMapLaunchFailed;
+    private static bool SettingsValid(AppSettings settings)
+        => settings.AutomaticCleaningEnabled
+           && !string.IsNullOrWhiteSpace(settings.RamMapPath)
+           && File.Exists(settings.RamMapPath);
+
+    private static TimeSpan IntervalFromSettings(AppSettings settings)
+        => TimeSpan.FromMinutes(Math.Max(1, settings.CleaningIntervalMinutes));
 
     public void Dispose()
     {

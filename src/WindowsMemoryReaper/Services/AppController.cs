@@ -1,19 +1,21 @@
 using System.IO;
 using System.Windows;
 using System.Windows.Threading;
-using WindowsMemoryReaper.Services;
 
 namespace WindowsMemoryReaper.Services;
 
 /// <summary>
-/// Coordinates the tray icon, settings window, scheduler and RAMMap service.
+/// Coordinates the tray icon, settings window, scheduler and the elevated
+/// cleanup worker. The tray process itself runs at medium integrity so its icon
+/// is always visible; the actual RAMMap operations run in the elevated worker.
 /// </summary>
 public sealed class AppController : IDisposable
 {
     private readonly SettingsStore _settingsStore;
-    private readonly RamMapService _ramMap;
+    private readonly WorkerBridge _bridge;
     private readonly TrayIconController _tray;
     private readonly CleanupScheduler _scheduler;
+    private readonly SemaphoreSlim _cleanGate = new(1, 1);
     private AppSettings _settings;
 
     private SettingsWindow? _settingsWindow;
@@ -25,15 +27,20 @@ public sealed class AppController : IDisposable
     {
         _settingsStore = new SettingsStore();
         _settings = _settingsStore.Load();
-        _ramMap = new RamMapService();
+        PersistDefaultsOnFirstRun();
+        _bridge = new WorkerBridge();
         _tray = new TrayIconController();
-        _scheduler = new CleanupScheduler(_ramMap, _settingsStore, _settings);
+        _scheduler = new CleanupScheduler(RunCleanCoreAsync, _settingsStore, _settings);
 
         WireEvents();
         ApplyIcon(AppStatus.Normal);
         UpdateTrayState();
 
         _scheduler.Start();
+
+        // Warm up the elevated worker so the single UAC prompt appears at startup
+        // rather than at the first cleanup. Result is handled by events.
+        _ = _bridge.PrepareAsync();
     }
 
     private void WireEvents()
@@ -52,17 +59,34 @@ public sealed class AppController : IDisposable
     }
 
     /// <summary>Public entry point for a manual clean (from tray or settings).</summary>
-    public async Task OnCleanNowAsync()
-    {
-        ApplyIcon(AppStatus.Cleaning);
-        var result = await _ramMap.RunCleanupAsync(_settings).ConfigureAwait(true);
-        HandleCleanupResult(result);
-    }
+    public async Task OnCleanNowAsync() => await CleanNowAsync().ConfigureAwait(true);
 
     private async Task CleanNowAsync()
     {
-        var result = await _ramMap.RunCleanupAsync(_settings).ConfigureAwait(true);
+        ApplyIcon(AppStatus.Cleaning);
+        var result = await RunCleanCoreAsync(_settings.RamMapPath, CancellationToken.None).ConfigureAwait(true);
         HandleCleanupResult(result);
+    }
+
+    /// <summary>
+    /// Serializes every cleanup (manual and automatic) so two cleanups never
+    /// overlap. Returns AlreadyRunning when another cleanup is in progress.
+    /// </summary>
+    private async Task<CleanupResult> RunCleanCoreAsync(string? ramMapPath, CancellationToken cancellationToken)
+    {
+        if (!await _cleanGate.WaitAsync(0, cancellationToken).ConfigureAwait(false))
+        {
+            return new CleanupResult(CleanupResultKind.AlreadyRunning, 0, null);
+        }
+
+        try
+        {
+            return await _bridge.RunCleanupAsync(ramMapPath ?? string.Empty, cancellationToken).ConfigureAwait(false);
+        }
+        finally
+        {
+            _cleanGate.Release();
+        }
     }
 
     private void HandleCleanupResult(CleanupResult result)
@@ -80,9 +104,17 @@ public sealed class AppController : IDisposable
                 ShowCleanupError("RAMMap64.exe could not be found. Please check the RAMMap location in Settings.");
                 break;
 
+            case CleanupResultKind.ElevationDeclined:
+                ApplyIcon(AppStatus.Warning);
+                ShowCleanupError(
+                    "The cleanup worker needs administrator approval.\n\n" +
+                    "Please allow the elevation prompt when it appears, or restart the application.");
+                break;
+
             case CleanupResultKind.RamMapLaunchFailed:
             case CleanupResultKind.Failed:
             case CleanupResultKind.TimedOut:
+            case CleanupResultKind.WorkerDisconnected:
                 ApplyIcon(AppStatus.Error);
                 ShowCleanupError("Memory cleanup could not be completed.");
                 break;
@@ -99,7 +131,7 @@ public sealed class AppController : IDisposable
 
     private void OnScheduledCleanupCompleted(CleanupResult result)
     {
-        Application.Current.Dispatcher.Invoke(() =>
+        Application.Current?.Dispatcher.Invoke(() =>
         {
             ApplyIcon(result.Kind == CleanupResultKind.Completed ? AppStatus.Normal : AppStatus.Error);
             UpdateTrayState();
@@ -186,7 +218,7 @@ public sealed class AppController : IDisposable
         _exitCts = new CancellationTokenSource();
         _exitCts.CancelAfter(TimeSpan.FromSeconds(10));
 
-        if (_ramMap.IsRunning)
+        if (IsCleanupActive())
         {
             _ = WaitForExitAsync();
         }
@@ -200,7 +232,7 @@ public sealed class AppController : IDisposable
     {
         try
         {
-            while (_ramMap.IsRunning)
+            while (IsCleanupActive())
             {
                 await Task.Delay(100, _exitCts!.Token).ConfigureAwait(false);
             }
@@ -213,6 +245,18 @@ public sealed class AppController : IDisposable
         await Application.Current.Dispatcher.InvokeAsync(CompleteExit, DispatcherPriority.Background);
     }
 
+    private bool IsCleanupActive()
+    {
+        try
+        {
+            return _cleanGate.CurrentCount == 0;
+        }
+        catch
+        {
+            return false;
+        }
+    }
+
     private void CompleteExit()
     {
         if (_disposed) return;
@@ -221,7 +265,32 @@ public sealed class AppController : IDisposable
         _scheduler.Dispose();
         _settingsWindow?.Close();
         _tray.Dispose();
+        _bridge.Dispose();
+        _cleanGate.Dispose();
         Application.Current.Shutdown();
+    }
+
+    /// <summary>
+    /// Creates the JSON settings file on first run (spec section 21). If the
+    /// executable directory is read-only, reports the error clearly instead of
+    /// silently storing configuration elsewhere (spec section 9).
+    /// </summary>
+    private void PersistDefaultsOnFirstRun()
+    {
+        if (_settingsStore.FileExists())
+        {
+            return;
+        }
+
+        try
+        {
+            _settingsStore.Save(_settings);
+        }
+        catch (InvalidOperationException ex)
+        {
+            MessageBox.Show(ex.Message, "Windows Memory Reaper",
+                MessageBoxButton.OK, MessageBoxImage.Warning);
+        }
     }
 
     public void Dispose()
@@ -230,6 +299,8 @@ public sealed class AppController : IDisposable
         _disposed = true;
         _scheduler.Dispose();
         _tray.Dispose();
+        _bridge.Dispose();
+        _cleanGate.Dispose();
     }
 
     private enum AppStatus
