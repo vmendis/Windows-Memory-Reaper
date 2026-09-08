@@ -103,8 +103,9 @@ Windows RAM Reaper/
 - [x] Commit.
 
 ### Step 10 — Publish + verification against acceptance criteria
-- [ ] `dotnet publish -c Release -r win-x64 --self-contained` → portable folder.
-- [ ] Manually verify against acceptance criteria (§28).
+- [x] `dotnet publish -c Release -r win-x64 --self-contained` → portable folder
+      (`publish\win-x64\WindowsMemoryReaper.exe`, single-file, self-contained).
+- [ ] Manually verify against acceptance criteria (§28) — see checklist below.
 - [ ] Commit.
 
 ---
@@ -125,7 +126,26 @@ WindowsMemoryReaper.json   (auto-created on first run)
 No installer, no registry, no service, no scheduled task, no MSFS dependency, no internet
 requirement. RAMMap64.exe is NOT redistributed (spec §3).
 
+## Manual verification checklist (acceptance criteria §28)
+
+Run `publish\win-x64\WindowsMemoryReaper.exe` (UAC prompt → approve) and tick off:
+
+- [ ] Runs without installer; tray icon appears; no main window.
+- [ ] Copy the publish folder to an arbitrary directory; runs from there.
+- [ ] Creates `WindowsMemoryReaper.json` beside the EXE on first run, with
+      `automaticCleaningEnabled: false` (no auto-clean on first launch).
+- [ ] `Settings...` opens the dialog; Browse selects `RAMMap64.exe`; status shows "found".
+- [ ] Enter a bogus path → status "not found"; Clean Now shows the clear error; icon amber.
+- [ ] Configure a real RAMMap64 path, Save, enable Automatic Cleaning at 5 min → tray menu
+      shows "Next cleaning: 5 min"; interval measured from completion.
+- [ ] Clean Now runs `-Ew -Es -Em -Et -E0` sequentially; RAMMap windows stay hidden; green
+      icon; completion notification appears.
+- [ ] Double-click tray icon opens Settings.
+- [ ] Exit stops the timer and the process leaves the tray.
+
 ## Notes / open questions
 
 - AOT migration tracked as a follow-up (after WPF becomes AOT-compatible).
 - Start-with-Windows shortcut is an optional future feature (§11), not in v1 scope.
+- v1 ships self-contained single-file (includes .NET runtime). A single-EXE + JSON
+  distribution is confirmed; the ~62 MB EXE is expected without Native AOT.
