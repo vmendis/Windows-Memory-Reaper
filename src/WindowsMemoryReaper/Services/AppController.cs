@@ -38,9 +38,8 @@ public sealed class AppController : IDisposable
 
         _scheduler.Start();
 
-        // Warm up the elevated worker so the single UAC prompt appears at startup
-        // rather than at the first cleanup. Result is handled by events.
-        _ = _bridge.PrepareAsync();
+        // The elevated worker is spawned lazily on the first cleanup, so launching
+        // the tray app never surprises the user with an unexpected UAC prompt.
     }
 
     private void WireEvents()
@@ -179,7 +178,7 @@ public sealed class AppController : IDisposable
 
     private void UpdateTrayState()
     {
-        _tray.SetAutomaticState(_settings.AutomaticCleaningEnabled, _scheduler.NextDelay);
+        _tray.SetAutomaticState(_settings.AutomaticCleaningEnabled, _settings.CleaningIntervalMinutes, _scheduler.NextDelay);
     }
 
     private void ApplyIcon(AppStatus status)

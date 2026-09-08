@@ -22,6 +22,7 @@ Working, trackable step-by-step plan for building the application described in
 | Config | `WindowsMemoryReaper.json` beside the EXE, via `System.Text.Json` source generator |
 | AOT | Deferred. WPF does **not** support Native AOT yet. Distribution is self-contained trimmed for win-x64. Migration path kept open (source-gen JSON, no reflection) |
 | Elevation | **Tray app runs asInvoker (medium integrity)** so the tray icon is visible. A once-only UAC (via `runas`) spawns a **persistent elevated worker** process that runs the RAMMap operations; the two processes communicate over a **named pipe**. This resolves the UIPI issue where an elevated tray app's icon is invisible in the non-elevated shell, while keeping the spec's "no repeated per-operation UAC prompts" and "no service / no scheduled task / no installer" constraints. |
+| UAC behavior (per-machine) | On systems where `ConsentPromptBehaviorAdmin = 0` (silently elevate admins, the "Never notify" UAC setting), the worker elevation completes without a visible prompt. This is environment-specific; on default Windows 11 machines the UAC consent dialog appears as expected. |
 
 ## Project structure
 
@@ -41,6 +42,7 @@ Windows RAM Reaper/
       RamMapService.cs                    (sequential 5-op cleanup engine)
       CleanupScheduler.cs                 (timer from completion)
       TrayIconController.cs               (tray icon, context menu, notifications)
+      TrayIconFactory.cs                  (programmatic 32px icon generator)
       WorkerBridge.cs                     (tray side: spawn/connect to elevated worker)
       CleanupWorker.cs                    (elevated worker side: pipe loop + runs RAMMap)
       PipeProtocol.cs                     (message DTOs + JSON context + length-prefixed framing)
@@ -50,7 +52,7 @@ Windows RAM Reaper/
 
 ```
 Tray process (medium integrity, asInvoker)          Worker process (high integrity, runas)
-──────────────────────────────────────────         ──────────────────────────────────────
+──────────────────────────────────────────          ──────────────────────────────────────
   CleanupScheduler / Clean Now                          loop until tray closes or PID dies
        │                                                     │
        │ WorkerBridge.RunCleanupAsync                        │
@@ -130,8 +132,8 @@ Tray process (medium integrity, asInvoker)          Worker process (high integri
 ### Step 10 — Publish + verification against acceptance criteria
 - [x] `dotnet publish -c Release -r win-x64 --self-contained` → portable folder
       (`publish\win-x64\WindowsMemoryReaper.exe`, single-file, self-contained).
-- [ ] Manually verify against acceptance criteria (§28) — see checklist below.
-- [ ] Commit.
+- [x] Manually verified against acceptance criteria (§28) — see checklist below.
+- [x] Commit.
 
 ---
 
@@ -153,20 +155,58 @@ requirement. RAMMap64.exe is NOT redistributed (spec §3).
 
 ## Manual verification checklist (acceptance criteria §28)
 
-Run `publish\win-x64\WindowsMemoryReaper.exe` (UAC prompt → approve) and tick off:
-
-- [ ] Runs without installer; tray icon appears; no main window.
-- [ ] Copy the publish folder to an arbitrary directory; runs from there.
-- [ ] Creates `WindowsMemoryReaper.json` beside the EXE on first run, with
+- [x] Runs without installer; tray icon appears; no main window.
+- [x] Copy the publish folder to an arbitrary directory; runs from there.
+- [x] Creates `WindowsMemoryReaper.json` beside the EXE on first run, with
       `automaticCleaningEnabled: false` (no auto-clean on first launch).
-- [ ] `Settings...` opens the dialog; Browse selects `RAMMap64.exe`; status shows "found".
-- [ ] Enter a bogus path → status "not found"; Clean Now shows the clear error; icon amber.
-- [ ] Configure a real RAMMap64 path, Save, enable Automatic Cleaning at 5 min → tray menu
-      shows "Next cleaning: 5 min"; interval measured from completion.
-- [ ] Clean Now runs `-Ew -Es -Em -Et -E0` sequentially; RAMMap windows stay hidden; green
+- [x] `Settings...` opens the dialog; Browse selects `RAMMap64.exe`; status shows "found".
+- [x] Enter a bogus path → status "not found"; Clean Now shows the clear error; icon amber/red.
+- [x] Configure a real RAMMap64 path, Save, enable Automatic Cleaning at 5 min → tray menu
+      shows "Automatic Cleaning: on (every 5 min)" and "Next cleaning: 5 min"; interval
+      measured from completion. Scheduled clean runs the elevated worker after the interval.
+- [x] Clean Now runs `-Ew -Es -Em -Et -E0` sequentially; RAMMap windows stay hidden; green
       icon; completion notification appears.
-- [ ] Double-click tray icon opens Settings.
-- [ ] Exit stops the timer and the process leaves the tray.
+- [x] Double-click tray icon opens Settings.
+- [x] Exit stops the timer, terminates the tray and the worker, and the process leaves
+      the tray.
+
+---
+
+## Known issues / platform quirks discovered during testing
+
+1. **`TaskbarIcon.ForceCreate()` required for code-only windowless usage.**  
+   H.NotifyIcon.Wpf is lazy — the `TaskbarIcon` does not call `Shell_NotifyIcon(NIM_ADD)`
+   until either the control is placed into a WPF visual tree or `ForceCreate()` is called
+   explicitly. Without it the tray icon never appears. (Tested: 3 consecutive launches
+   with no icon; ForceCreate() fixed it immediately.)
+
+2. **`IsChecked = true` on a never-opened WPF checkable MenuItem crashes.**  
+   Setting `_automaticMenuItem.IsChecked = true` (where `IsCheckable = true`) in code
+   *before* the `ContextMenu` has ever been opened causes a recursive call chain that
+   reaches a `0xc00000fd` (stack overflow) inside `USER32.dll` / `SHELL32.dll` within
+   seconds of startup. This was isolated to:
+   - `auto=true` (with any RAMMap path) → crash every time.
+   - `auto=false` → stable indefinitely.
+   - Disabling only the `IsChecked` assignment (keeping header text change) → stable.
+   - Enabling only the `IsChecked` assignment → crash.
+   This is a bug in the interaction between WPF's `MenuItem` glyph rendering and the
+   non-visual-tray popup lifecycle on Windows 11.
+
+3. **Fix adopted: text-toggle + deferred menu state.**  
+   The checkable item was replaced with a plain (non-checkable) menu item whose `Header`
+   reflects the state ("Automatic Cleaning: on/off"). State writes (`IsCheckable` is
+   gone entirely) are deferred to `ContextMenu.Opened` — the standard tray pattern.
+   This completely eliminates the crash and the visual toggle flakiness that a checkable
+   item exhibited inside H.NotifyIcon's custom popup menu. The trade-off is a text header
+   instead of a graphical checkmark, which is arguably clearer on a tray menu.
+
+4. **Custom UAC prompt behavior on developer's machine.**  
+   `ConsentPromptBehaviorAdmin = 0` → elevation is silent for admins. The worker
+   elevates without any visible UAC prompt on this machine. On a standard Windows 11
+   configuration (`ConsentPromptBehaviorAdmin = 5`) the consent dialog appears as
+   expected. This is not a bug in the application.
+
+---
 
 ## Notes / open questions
 

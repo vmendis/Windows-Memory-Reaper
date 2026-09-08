@@ -1,6 +1,7 @@
 using System.Drawing;
 using System.Drawing.Drawing2D;
 using System.Drawing.Imaging;
+using System.Runtime.InteropServices;
 
 namespace WindowsMemoryReaper.Services;
 
@@ -10,6 +11,9 @@ namespace WindowsMemoryReaper.Services;
 public static class TrayIconFactory
 {
     private const int Size = 32;
+
+    [DllImport("user32.dll")]
+    private static extern bool DestroyIcon(IntPtr handle);
 
     /// <summary>Creates an icon in the given color with an "R" glyph.</summary>
     public static Icon Create(Color color)
@@ -34,7 +38,19 @@ public static class TrayIconFactory
             graphics.DrawString("R", font, textBrush, rect, format);
         }
 
-        return Icon.FromHandle(bitmap.GetHicon());
+        // Icon.FromHandle does not own the HICON; Clone takes a safe copy first,
+        // then the temporary HICON is released. This reliably preserves the
+        // alpha channel for the notification area.
+        var hicon = bitmap.GetHicon();
+        try
+        {
+            using var temporary = Icon.FromHandle(hicon);
+            return (Icon)temporary.Clone();
+        }
+        finally
+        {
+            DestroyIcon(hicon);
+        }
     }
 
     public static readonly Color NormalColor = Color.FromArgb(0x2D, 0x7D, 0x32);   // green

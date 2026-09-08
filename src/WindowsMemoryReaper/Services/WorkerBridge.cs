@@ -31,23 +31,6 @@ public sealed class WorkerBridge : IDisposable
     public bool IsConnected => _server is { IsConnected: true };
 
     /// <summary>
-    /// Warms up the worker connection (used at tray startup so the UAC prompt
-    /// appears at launch rather than at the first cleanup).
-    /// </summary>
-    public async Task PrepareAsync(CancellationToken cancellationToken = default)
-    {
-        await _gate.WaitAsync(cancellationToken).ConfigureAwait(false);
-        try
-        {
-            await EnsureWorkerAsync(cancellationToken).ConfigureAwait(false);
-        }
-        finally
-        {
-            _gate.Release();
-        }
-    }
-
-    /// <summary>
     /// Ensures a worker is available, sends a cleanup request and returns the
     /// result. Fails fast when the user declines the elevation prompt. Cleanup
     /// requests are serialized so two cleanups can never overlap.

@@ -15,10 +15,17 @@ public sealed class TrayIconController : IDisposable
     // Context menu items we need to update in place.
     private System.Windows.Controls.MenuItem _automaticMenuItem = new();
     private System.Windows.Controls.MenuItem _nextCleaningMenuItem = new();
+    private bool _automaticEnabled;
+    private int _automaticIntervalMinutes;
+    private TimeSpan? _automaticNextDelay;
 
     public TrayIconController()
     {
         BuildMenu();
+        SetIcon(TrayIconFactory.Create(TrayIconFactory.NormalColor), "Windows Memory Reaper");
+        // In code-only (windowless) usage the TaskbarIcon is lazy and does not
+        // register until Create() is forced. Without this no tray icon appears.
+        _taskbarIcon.ForceCreate();
     }
 
     public event Action? CleanNowRequested;
@@ -29,6 +36,7 @@ public sealed class TrayIconController : IDisposable
     private void BuildMenu()
     {
         var menu = new System.Windows.Controls.ContextMenu();
+        menu.Opened += (_, _) => RefreshAutomaticState();
         var doubleClickMessage = new System.Windows.Controls.MenuItem
         {
             Header = "Windows Memory Reaper",
@@ -41,9 +49,8 @@ public sealed class TrayIconController : IDisposable
         cleanNow.Click += (_, _) => CleanNowRequested?.Invoke();
         menu.Items.Add(cleanNow);
 
-        _automaticMenuItem = new System.Windows.Controls.MenuItem { Header = "Automatic Cleaning", IsCheckable = true };
-        _automaticMenuItem.Checked += (_, _) => ToggleAutomaticCleaningRequested?.Invoke();
-        _automaticMenuItem.Unchecked += (_, _) => ToggleAutomaticCleaningRequested?.Invoke();
+        _automaticMenuItem = new System.Windows.Controls.MenuItem { Header = "Automatic Cleaning" };
+        _automaticMenuItem.Click += (_, _) => ToggleAutomaticCleaningRequested?.Invoke();
         menu.Items.Add(_automaticMenuItem);
 
         _nextCleaningMenuItem = new System.Windows.Controls.MenuItem
@@ -76,13 +83,27 @@ public sealed class TrayIconController : IDisposable
         _taskbarIcon.ToolTipText = tooltip;
     }
 
-    /// <summary>Updates the automatic-cleaning checkmark and countdown text.</summary>
-    public void SetAutomaticState(bool enabled, TimeSpan? nextDelay)
+    /// <summary>
+    /// Caches the automatic-cleaning state and countdown text. The context-menu
+    /// items are only touched when the menu is actually opened, because setting
+    /// <c>IsChecked</c> on a checkable item of a never-opened menu triggers a
+    /// native stack overflow inside USER32/SHELL32 on Windows 11.
+    /// </summary>
+    public void SetAutomaticState(bool enabled, int intervalMinutes, TimeSpan? nextDelay)
     {
-        _automaticMenuItem.IsChecked = enabled;
-        _nextCleaningMenuItem.Header = !enabled
-            ? "Automatic cleaning disabled"
-            : nextDelay is { } d
+        _automaticEnabled = enabled;
+        _automaticIntervalMinutes = intervalMinutes;
+        _automaticNextDelay = nextDelay;
+    }
+
+    private void RefreshAutomaticState()
+    {
+        _automaticMenuItem.Header = _automaticEnabled
+            ? $"Automatic Cleaning: on (every {_automaticIntervalMinutes} min)"
+            : "Automatic Cleaning: off";
+        _nextCleaningMenuItem.Header = !_automaticEnabled
+            ? "Next cleaning: disabled"
+            : _automaticNextDelay is { } d
                 ? $"Next cleaning: {FormatDelay(d)}"
                 : "Next cleaning: pending";
     }
