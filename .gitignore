@@ -1,11 +1,72 @@
-# .NET build output
+# ---- .NET build output ----
 bin/
 obj/
 
-# Publish output
+# ---- Publish output ----
 publish/
 
-# Rider/VS user files
+# ---- NuGet packages ----
+*.nupkg
+*.snupkg
+packages/
+**/packages/*
+!packages/build/
+
+# ---- Visual Studio ----
 .vs/
-.idea/
+*.suo
 *.user
+*.userosscache
+*.sln.docstats
+*.pidb
+*.userprefs
+launchSettings.json
+
+# ---- JetBrains Rider ----
+.idea/
+*.sln.iml
+_ReSharper*/
+*.[Rr]e[Ss]harper
+*.DotSettings.user
+
+# ---- Build results ----
+[Dd]ebug/
+[Rr]elease/
+x64/
+x86/
+[Bb]uild/
+bld/
+[Tt]est[Rr]esult*/
+
+# ---- Windows system files ----
+Thumbs.db
+ehthumbs.db
+Desktop.ini
+$RECYCLE.BIN/
+*.lnk
+
+# ---- macOS ----
+.DS_Store
+.AppleDouble
+.LSOverride
+._*
+
+# ---- VS Code ----
+.vscode/*
+!.vscode/settings.json
+!.vscode/tasks.json
+!.vscode/launch.json
+!.vscode/extensions.json
+
+# ---- Secrets / environment ----
+*.env
+.env.*
+appsettings.*.json
+secrets.json
+user secrets/
+
+# ---- OS temp / crash ----
+*.stackdump
+*.dmp
+*.mdmp
+*~
