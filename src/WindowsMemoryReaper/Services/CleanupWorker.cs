@@ -17,55 +17,72 @@ public static class CleanupWorker
     {
         try
         {
-            await using var client = new NamedPipeClientStream(".", pipeName,
-                PipeDirection.InOut, PipeOptions.None);
-            await client.ConnectAsync(cancellationToken).ConfigureAwait(false);
-
-            var ramMap = new RamMapService();
-
-            while (!cancellationToken.IsCancellationRequested)
+            using var watchdogCts = new CancellationTokenSource();
+            var watchdog = StartTrayWatchdog(trayPid, watchdogCts.Token);
+            try
             {
-                if (trayPid > 0 && !IsProcessAlive(trayPid))
+                await using var client = new NamedPipeClientStream(".", pipeName,
+                    PipeDirection.InOut, PipeOptions.None);
+                await client.ConnectAsync(cancellationToken).ConfigureAwait(false);
+
+                var ramMap = new RamMapService();
+
+                while (!cancellationToken.IsCancellationRequested)
                 {
-                    break;
+                    if (trayPid > 0 && !IsProcessAlive(trayPid))
+                    {
+                        break;
+                    }
+
+                    CleanRequest? request;
+                    try
+                    {
+                        var requestBytes = await PipeProtocol.ReadChunkAsync(client, cancellationToken).ConfigureAwait(false);
+                        request = PipeProtocol.Deserialize(requestBytes, PipeJsonContext.Default.CleanRequest);
+                    }
+                    catch (Exception ex) when (IsChannelFailure(ex))
+                    {
+                        break;
+                    }
+
+                    if (request is null)
+                    {
+                        continue;
+                    }
+
+                    var result = await ramMap.RunCleanupAsync(request.RamMapPath, cancellationToken).ConfigureAwait(false);
+                    var reply = new CleanReply
+                    {
+                        Kind = result.Kind.ToString(),
+                        CompletedOperations = result.CompletedOperations,
+                        Detail = result.Detail,
+                    };
+
+                    try
+                    {
+                        var replyBytes = PipeProtocol.Serialize(reply, PipeJsonContext.Default.CleanReply);
+                        await PipeProtocol.WriteChunkAsync(client, replyBytes, cancellationToken).ConfigureAwait(false);
+                    }
+                    catch (Exception ex) when (IsChannelFailure(ex))
+                    {
+                        break;
+                    }
                 }
 
-                CleanRequest? request;
+                return 0;
+            }
+            finally
+            {
+                watchdogCts.Cancel();
                 try
                 {
-                    var requestBytes = await PipeProtocol.ReadChunkAsync(client, cancellationToken).ConfigureAwait(false);
-                    request = PipeProtocol.Deserialize(requestBytes, PipeJsonContext.Default.CleanRequest);
+                    await watchdog.ConfigureAwait(false);
                 }
-                catch (Exception ex) when (IsChannelFailure(ex))
+                catch
                 {
-                    break;
-                }
-
-                if (request is null)
-                {
-                    continue;
-                }
-
-                var result = await ramMap.RunCleanupAsync(request.RamMapPath, cancellationToken).ConfigureAwait(false);
-                var reply = new CleanReply
-                {
-                    Kind = result.Kind.ToString(),
-                    CompletedOperations = result.CompletedOperations,
-                    Detail = result.Detail,
-                };
-
-                try
-                {
-                    var replyBytes = PipeProtocol.Serialize(reply, PipeJsonContext.Default.CleanReply);
-                    await PipeProtocol.WriteChunkAsync(client, replyBytes, cancellationToken).ConfigureAwait(false);
-                }
-                catch (Exception ex) when (IsChannelFailure(ex))
-                {
-                    break;
+                    // The watchdog may already have terminated this process.
                 }
             }
-
-            return 0;
         }
         catch (OperationCanceledException)
         {
@@ -74,6 +91,30 @@ public static class CleanupWorker
         catch (Exception ex) when (IsChannelFailure(ex))
         {
             return 1;
+        }
+    }
+
+    /// <summary>
+    /// Polls whether the tray process that spawned this worker is still alive and
+    /// terminates the worker immediately if it is gone. This closes the gap where
+    /// the worker stays inside a long RAMMap cycle and only re-checks the tray at
+    /// the top of its loop, which would otherwise let an orphaned elevated worker
+    /// linger (and keep the single-file EXE locked).
+    /// </summary>
+    private static async Task StartTrayWatchdog(int trayPid, CancellationToken cancellationToken)
+    {
+        if (trayPid <= 0)
+        {
+            return;
+        }
+
+        while (!cancellationToken.IsCancellationRequested)
+        {
+            await Task.Delay(TimeSpan.FromSeconds(2), cancellationToken).ConfigureAwait(false);
+            if (!IsProcessAlive(trayPid))
+            {
+                Environment.Exit(1);
+            }
         }
     }
 

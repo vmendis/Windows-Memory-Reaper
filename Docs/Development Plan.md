@@ -229,14 +229,15 @@ requirement. RAMMap64.exe is NOT redistributed (spec §3).
    continually generate Windows notifications every time the timer runs"). Verified as
    spec-compliant, not a defect.
 
-7. **Elevated worker self-exits when the tray dies (observed), with one caveat.**  
-   Killing the tray process caused the idle elevated worker to exit on its own within
-   ~12 s (observed 2026-09-12; the pipe breaks on process death and `IsChannelFailure`
-   ends the loop). Orphaned workers seen earlier were consistent with the
-   stack-overflow-era build, and with a tray killed while a RAMMap cycle was in progress:
-   the worker only re-checks `trayPid` at the top of its loop, so it can run out the rest
-   of a cycle (up to the cycle timeout) before exiting. Candidate follow-up: a periodic
-   worker-side `trayPid` health poll so a worker exits promptly even mid-cycle.
+7. **Elevated worker now exits within ~2 s of the tray dying (hardened 2026-09-12).**  
+   The worker used to only re-check `trayPid` at the top of its message loop, so if
+   its tray was killed while a RAMMap cycle was in progress it ran out the rest of the
+   cycle before exiting — briefly leaving an orphaned elevated process that could keep
+   the single-file EXE locked and block republishing. A 2-second worker-side watchdog
+   (`CleanupWorker.StartTrayWatchdog`) now polls `IsProcessAlive(trayPid)` on a
+   background task and calls `Environment.Exit(1)` when the tray is gone, regardless of
+   what the worker is doing. Verified by force-killing the tray mid-RAMMap-cycle: the
+   worker terminated within 307 ms. Normal idle self-exit (pipe break) still applies.
 
 ---
 
