@@ -206,6 +206,38 @@ requirement. RAMMap64.exe is NOT redistributed (spec §3).
    configuration (`ConsentPromptBehaviorAdmin = 5`) the consent dialog appears as
    expected. This is not a bug in the application.
 
+5. **"Next cleaning" menu countdown was stale; two ordering bugs fixed (2026-09-12).**  
+   - `AppController` constructor called `UpdateTrayState()` *before* `_scheduler.Start()`
+     armed the timer, so the due time was always read as `null` at startup.
+   - `CleanupScheduler.OnTimerFired` invoked `CleanupCompleted` *before*
+     `ScheduleNextIfApplicable()`, so the menu refresh read the stale due time after
+     every automatic cycle.
+   - Fix: `CleanupScheduler` now tracks an absolute `DateTimeOffset NextDueTime`
+     (`Now + interval` on arming; `null` while a cleanup cycles or when unscheduled)
+     instead of a static `TimeSpan`. `AppController` starts the scheduler before reading
+     the state, and `OnTimerFired` re-arms before notifying.
+   - `TrayIconController` caches the due time, refreshes it on `ContextMenu.Opened`, and
+     runs a 1 s `DispatcherTimer` (started on `Opened`, stopped on `Closed`) that
+     live-rebuilds the "Next cleaning" header from `due − now`.
+   - Verified: correct value at launch, ticks live while the menu stays open (5 → 4 min),
+     updates across re-opens, and resets from the completion point after a real automatic
+     cycle (cycle observed firing on time with the elevated worker + RAMMap).
+
+6. **No tray notification after an *automatic* clean is intended behaviour (spec §14).**  
+   Manual Clean Now shows the "Memory cleanup completed." toast; automatic cleaning is
+   deliberately silent per spec §14 ("optional or disabled by default", "should not
+   continually generate Windows notifications every time the timer runs"). Verified as
+   spec-compliant, not a defect.
+
+7. **Elevated worker self-exits when the tray dies (observed), with one caveat.**  
+   Killing the tray process caused the idle elevated worker to exit on its own within
+   ~12 s (observed 2026-09-12; the pipe breaks on process death and `IsChannelFailure`
+   ends the loop). Orphaned workers seen earlier were consistent with the
+   stack-overflow-era build, and with a tray killed while a RAMMap cycle was in progress:
+   the worker only re-checks `trayPid` at the top of its loop, so it can run out the rest
+   of a cycle (up to the cycle timeout) before exiting. Candidate follow-up: a periodic
+   worker-side `trayPid` health poll so a worker exits promptly even mid-cycle.
+
 ---
 
 ## Notes / open questions

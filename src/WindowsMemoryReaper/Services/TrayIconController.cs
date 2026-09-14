@@ -1,4 +1,5 @@
 using System.Drawing;
+using System.Windows.Threading;
 using H.NotifyIcon;
 using H.NotifyIcon.Core;
 using WindowsMemoryReaper.Services;
@@ -17,10 +18,13 @@ public sealed class TrayIconController : IDisposable
     private System.Windows.Controls.MenuItem _nextCleaningMenuItem = new();
     private bool _automaticEnabled;
     private int _automaticIntervalMinutes;
-    private TimeSpan? _automaticNextDelay;
+    private DateTimeOffset? _automaticNextDue;
+    private bool _menuOpen;
+    private readonly DispatcherTimer _countdownTimer = new() { Interval = TimeSpan.FromSeconds(1) };
 
     public TrayIconController()
     {
+        _countdownTimer.Tick += (_, _) => RefreshNextCleaningText();
         BuildMenu();
         SetIcon(TrayIconFactory.Create(TrayIconFactory.NormalColor), "Windows Memory Reaper");
         // In code-only (windowless) usage the TaskbarIcon is lazy and does not
@@ -36,7 +40,17 @@ public sealed class TrayIconController : IDisposable
     private void BuildMenu()
     {
         var menu = new System.Windows.Controls.ContextMenu();
-        menu.Opened += (_, _) => RefreshAutomaticState();
+        menu.Opened += (_, _) =>
+        {
+            _menuOpen = true;
+            RefreshAutomaticState();
+            _countdownTimer.Start();
+        };
+        menu.Closed += (_, _) =>
+        {
+            _menuOpen = false;
+            _countdownTimer.Stop();
+        };
         var doubleClickMessage = new System.Windows.Controls.MenuItem
         {
             Header = "Windows Memory Reaper",
@@ -84,16 +98,16 @@ public sealed class TrayIconController : IDisposable
     }
 
     /// <summary>
-    /// Caches the automatic-cleaning state and countdown text. The context-menu
-    /// items are only touched when the menu is actually opened, because setting
-    /// <c>IsChecked</c> on a checkable item of a never-opened menu triggers a
-    /// native stack overflow inside USER32/SHELL32 on Windows 11.
+    /// Caches the automatic-cleaning state and the absolute next-cleanup time.
+    /// The context-menu items are only touched when the menu is actually opened,
+    /// because setting <c>IsChecked</c> on a checkable item of a never-opened
+    /// menu triggers a native stack overflow inside USER32/SHELL32 on Windows 11.
     /// </summary>
-    public void SetAutomaticState(bool enabled, int intervalMinutes, TimeSpan? nextDelay)
+    public void SetAutomaticState(bool enabled, int intervalMinutes, DateTimeOffset? nextDue)
     {
         _automaticEnabled = enabled;
         _automaticIntervalMinutes = intervalMinutes;
-        _automaticNextDelay = nextDelay;
+        _automaticNextDue = nextDue;
     }
 
     private void RefreshAutomaticState()
@@ -101,11 +115,36 @@ public sealed class TrayIconController : IDisposable
         _automaticMenuItem.Header = _automaticEnabled
             ? $"Automatic Cleaning: on (every {_automaticIntervalMinutes} min)"
             : "Automatic Cleaning: off";
-        _nextCleaningMenuItem.Header = !_automaticEnabled
-            ? "Next cleaning: disabled"
-            : _automaticNextDelay is { } d
-                ? $"Next cleaning: {FormatDelay(d)}"
-                : "Next cleaning: pending";
+        RefreshNextCleaningText();
+    }
+
+    private void RefreshNextCleaningText()
+    {
+        if (_automaticEnabled && _menuOpen)
+        {
+            _nextCleaningMenuItem.Header = BuildNextCleaningText();
+        }
+    }
+
+    private string BuildNextCleaningText()
+    {
+        if (!_automaticEnabled)
+        {
+            return "Next cleaning: disabled";
+        }
+
+        if (_automaticNextDue is not { } due)
+        {
+            return "Next cleaning: pending";
+        }
+
+        var remaining = due - DateTimeOffset.Now;
+        if (remaining <= TimeSpan.Zero)
+        {
+            return "Next cleaning: pending";
+        }
+
+        return $"Next cleaning: {FormatDelay(remaining)}";
     }
 
     /// <summary>Shows a small balloon notification. Automatic notifications disabled by default.</summary>

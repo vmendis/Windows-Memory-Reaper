@@ -34,9 +34,8 @@ public sealed class AppController : IDisposable
 
         WireEvents();
         ApplyIcon(AppStatus.Normal);
-        UpdateTrayState();
-
         _scheduler.Start();
+        UpdateTrayState();
 
         // The elevated worker is spawned lazily on the first cleanup, so launching
         // the tray app never surprises the user with an unexpected UAC prompt.
@@ -178,7 +177,7 @@ public sealed class AppController : IDisposable
 
     private void UpdateTrayState()
     {
-        _tray.SetAutomaticState(_settings.AutomaticCleaningEnabled, _settings.CleaningIntervalMinutes, _scheduler.NextDelay);
+        _tray.SetAutomaticState(_settings.AutomaticCleaningEnabled, _settings.CleaningIntervalMinutes, _scheduler.NextDueTime);
     }
 
     private void ApplyIcon(AppStatus status)

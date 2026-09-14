@@ -37,8 +37,8 @@ public sealed class CleanupScheduler : IDisposable
         get { lock (_gate) return _settings; }
     }
 
-    /// <summary>The interval to the next cleanup, when scheduled.</summary>
-    public TimeSpan? NextDelay { get; private set; }
+    /// <summary>Absolute time of the next cleanup, when scheduled.</summary>
+    public DateTimeOffset? NextDueTime { get; private set; }
 
     /// <summary>Reloads settings and restarts (or stops) the timer accordingly.</summary>
     public void Reload()
@@ -69,7 +69,7 @@ public sealed class CleanupScheduler : IDisposable
 
             _timer?.Dispose();
             _timer = null;
-            NextDelay = null;
+            NextDueTime = null;
 
             var settings = _settings;
             if (!SettingsValid(settings))
@@ -78,7 +78,7 @@ public sealed class CleanupScheduler : IDisposable
             }
 
             var interval = IntervalFromSettings(settings);
-            NextDelay = interval;
+            NextDueTime = DateTimeOffset.Now + interval;
             _timer = new System.Threading.Timer(OnTimerFired, null, interval, Timeout.InfiniteTimeSpan);
         }
     }
@@ -92,6 +92,9 @@ public sealed class CleanupScheduler : IDisposable
                 return;
             }
             _cleanupInProgress = true;
+            // The countdown is suspended while a cleanup cycles; the next due
+            // time is set again from the completion point (spec section 16).
+            NextDueTime = null;
         }
 
         try
@@ -103,11 +106,11 @@ public sealed class CleanupScheduler : IDisposable
             }
 
             var result = await _clean(settings.RamMapPath, CancellationToken.None).ConfigureAwait(false);
-            CleanupCompleted?.Invoke(result);
 
-            // The interval is measured from completion, so always re-arm unless the
-            // scheduler was disposed or settings now make automatic cleaning invalid.
+            // Re-arm (and thus set the new due time) before notifying, so the
+            // tray refresh reads the next due time rather than the stale one.
             ScheduleNextIfApplicable();
+            CleanupCompleted?.Invoke(result);
         }
         finally
         {
@@ -129,12 +132,12 @@ public sealed class CleanupScheduler : IDisposable
             {
                 _timer?.Dispose();
                 _timer = null;
-                NextDelay = null;
+                NextDueTime = null;
                 return;
             }
 
             var interval = IntervalFromSettings(settings);
-            NextDelay = interval;
+            NextDueTime = DateTimeOffset.Now + interval;
             _timer?.Dispose();
             _timer = new System.Threading.Timer(OnTimerFired, null, interval, Timeout.InfiniteTimeSpan);
         }
