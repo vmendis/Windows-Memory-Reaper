@@ -141,6 +141,13 @@ The **tray process** runs at medium integrity so its icon is always visible in t
 
 ## Building from Source
 
+**Clone the repository:**
+
+```bash
+git clone https://github.com/vmendis/Windows-Memory-Reaper.git
+cd Windows-Memory-Reaper
+```
+
 **Prerequisites:**
 
 - [.NET 10 SDK](https://dotnet.microsoft.com/download/dotnet/10.0) (or later)
