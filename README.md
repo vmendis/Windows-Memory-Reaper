@@ -75,6 +75,40 @@ When automatic cleaning is enabled, the application runs the following five RAMM
 
 The timer is measured from the **completion** of one cycle, not from its start. If a cleanup is already running when the timer fires, the new cycle is skipped.
 
+For a brief explanation of what each of these five things actually is and how Windows manages them, see [Memory-management fundamentals](#memory-management-fundamentals).
+
+---
+
+## Memory-Management Fundamentals
+
+Windows is a *demand-paged, virtual-memory* operating system. Programs address a large virtual address space, and the **memory manager** brings pages into physical RAM only when they are actually touched (faulted in). The memory manager also keeps bookkeeping for every physical page of RAM (the *page-frame database*) and assigns each page to one of several state lists: free, zeroed, modified, standby, transition, or bad. The five operations this tool runs act on five of those concepts:
+
+### Working Set
+
+A process's **working set** is the subset of its virtual address space currently resident in physical memory — the pages the process can access without needing to read them back from disk. Windows grows a working set on demand and *trims* it when physical memory is in demand; this trimming is done periodically by the kernel's **balance-set manager**. Emptying working sets removes those resident pages: clean pages move to the standby list, while modified pages are written to disk first.
+
+### System Working Set
+
+Kernel-mode code and data — the kernel itself, device drivers, and the file-system cache — is also memory-managed, and its resident physical pages form the **system working set** (the working set of the system process, PID 4). Emptying the system working set trims those kernel-mode pages in the same way process working sets are trimmed.
+
+### Modified Working Set / Modified Page List
+
+Pages whose contents changed since they were last written to disk are *modified* (dirty). The memory manager keeps them on the **modified page list** rather than freeing or reusing them, so the data is never lost. A background system thread, the **modified page writer**, lazily writes these pages to disk over time; once written, a page moves to the standby list and can be reused. Emptying the modified page list forces that flush immediately, so dirty pages are written to disk and their memory becomes reusable.
+
+### Standby List
+
+Pages whose contents are no longer needed but are still intact in RAM belong to the **standby list** — the operating system's cache. This is exactly what Task Manager reports as *"available / cached"* memory. Standby pages are kept precisely because they can be reused cheaply: if a process needs one of them again, Windows reactivates it instantly, with **no disk I/O**. Emptying the standby list hands those pages back to the free list early.
+
+### Priority 0 Standby List
+
+Standby pages are organised into up to eight priority buckets (0–7) so the memory manager can decide *which* cached pages to recycle first. **Priority 0** is the lowest — these are the pages that Windows considers least worth keeping and reclaims first when RAM is needed for something new. Emptying the priority 0 standby list decommits exactly those pages to the free list, without touching higher-priority cache.
+
+### Key takeaways
+
+- **Low "free" memory is not low memory.** Windows deliberately uses available RAM for caching; most of that shows up as standby pages.
+- **Standby pages are available.** Any device or process can take them back the instant it needs them — Windows does not hold them hostage.
+- **Cleaning is a temporary effect.** The memory manager will reuse those pages for caching again, because that is what it is designed to do. Periodic forced cleaning is not universally beneficial — see the [Disclaimer](#disclaimer).
+
 ---
 
 ## Architecture
