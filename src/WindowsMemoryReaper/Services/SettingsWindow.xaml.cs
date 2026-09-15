@@ -52,7 +52,32 @@ public partial class SettingsWindow : Window
             IntervalBox.SelectedItem = IntervalBox.Items[^1];
         }
 
+        OpEwBox.IsChecked = settings.OperationEmptyWorkingSets;
+        OpEsBox.IsChecked = settings.OperationEmptySystemWorkingSet;
+        OpEmBox.IsChecked = settings.OperationEmptyModifiedPageList;
+        OpEtBox.IsChecked = settings.OperationEmptyStandbyList;
+        OpE0Box.IsChecked = settings.OperationEmptyPriority0StandbyList;
+
+        OpEwBox.Unchecked += OnOperationUnchecked;
+        OpEsBox.Unchecked += OnOperationUnchecked;
+        OpEmBox.Unchecked += OnOperationUnchecked;
+        OpEtBox.Unchecked += OnOperationUnchecked;
+        OpE0Box.Unchecked += OnOperationUnchecked;
+
         UpdateStatus();
+    }
+
+    private void OnOperationUnchecked(object sender, RoutedEventArgs e)
+    {
+        if (OpEwBox.IsChecked != true && OpEsBox.IsChecked != true &&
+            OpEmBox.IsChecked != true && OpEtBox.IsChecked != true &&
+            OpE0Box.IsChecked != true)
+        {
+            if (sender is CheckBox box)
+            {
+                box.IsChecked = true;
+            }
+        }
     }
 
     private void UpdateStatus()
@@ -111,6 +136,12 @@ public partial class SettingsWindow : Window
         {
             _settings.CleaningIntervalMinutes = minutes;
         }
+
+        _settings.OperationEmptyWorkingSets = OpEwBox.IsChecked == true;
+        _settings.OperationEmptySystemWorkingSet = OpEsBox.IsChecked == true;
+        _settings.OperationEmptyModifiedPageList = OpEmBox.IsChecked == true;
+        _settings.OperationEmptyStandbyList = OpEtBox.IsChecked == true;
+        _settings.OperationEmptyPriority0StandbyList = OpE0Box.IsChecked == true;
 
         UpdateStatus();
     }

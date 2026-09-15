@@ -2,12 +2,17 @@
         xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
         xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
         Title="Windows Memory Reaper — Settings"
-        Width="460" Height="340"
+        Width="460" Height="470"
         ResizeMode="NoResize"
         WindowStartupLocation="CenterScreen"
         ShowInTaskbar="True">
     <Grid Margin="16">
         <Grid.RowDefinitions>
+            <RowDefinition Height="Auto"/>
+            <RowDefinition Height="Auto"/>
+            <RowDefinition Height="Auto"/>
+            <RowDefinition Height="Auto"/>
+            <RowDefinition Height="Auto"/>
             <RowDefinition Height="Auto"/>
             <RowDefinition Height="Auto"/>
             <RowDefinition Height="Auto"/>
@@ -42,9 +47,16 @@
             <ComboBoxItem Content="Custom..."/>
         </ComboBox>
 
-        <TextBlock x:Name="StatusText" Grid.Row="5" Margin="0,16,0,0" Foreground="{DynamicResource {x:Static SystemColors.GrayTextBrushKey}}"/>
+        <TextBlock Grid.Row="5" Text="Operations to perform" FontWeight="SemiBold" Margin="0,14,0,6"/>
+        <CheckBox x:Name="OpEwBox" Grid.Row="6" Content="Empty Working Sets (-Ew)" Margin="16,0,0,2"/>
+        <CheckBox x:Name="OpEsBox" Grid.Row="7" Content="Empty System Working Set (-Es)" Margin="16,0,0,2"/>
+        <CheckBox x:Name="OpEmBox" Grid.Row="8" Content="Empty Modified Page List (-Em)" Margin="16,0,0,2"/>
+        <CheckBox x:Name="OpEtBox" Grid.Row="9" Content="Empty Standby List (-Et)" Margin="16,0,0,2"/>
+        <CheckBox x:Name="OpE0Box" Grid.Row="10" Content="Empty Priority 0 Standby List (-E0)" Margin="16,0,0,2"/>
 
-        <StackPanel Grid.Row="7" Orientation="Horizontal" HorizontalAlignment="Right">
+        <TextBlock x:Name="StatusText" Grid.Row="11" Margin="0,16,0,0" Foreground="{DynamicResource {x:Static SystemColors.GrayTextBrushKey}}"/>
+
+        <StackPanel Grid.Row="12" Orientation="Horizontal" HorizontalAlignment="Right">
             <Button Content="Clean Now" Margin="0,0,8,0" Padding="12,3" Click="CleanNow_Click"/>
             <Button Content="Save" IsDefault="True" Margin="0,0,8,0" Padding="12,3" Click="Save_Click"/>
             <Button Content="Cancel" IsCancel="True" Padding="12,3" Click="Cancel_Click"/>

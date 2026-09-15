@@ -9,7 +9,7 @@ A lightweight Windows 11 system-tray utility that periodically reclaims RAM by i
 - **System-tray resident** — runs quietly in the notification area with colour-coded status icons
 - **Automatic cleaning** — configurable timer cleans RAM at a fixed interval (default 30 minutes)
 - **Manual cleaning** — one-click "Clean now" from the tray menu
-- **Five RAMMap operations** — executes the full suite of RAMMap memory-release commands for thorough cleaning
+- **Five RAMMap operations** — executes the full suite of RAMMap memory-release commands for thorough cleaning, with each operation individually configurable in Settings
 - **Elevated worker architecture** — only one UAC prompt for the entire session; the worker persists until the tray exits
 - **Portable** — single self-contained EXE (~65 MB), no installation required; place it anywhere and run
 - **Settings UI** — configure the RAMMap path, cleaning interval, and enable/disable automatic cleaning
@@ -63,7 +63,7 @@ The tray icon changes colour to reflect the current state:
 
 ## How Automatic Cleaning Works
 
-When automatic cleaning is enabled, the application runs the following five RAMMap operations sequentially at the configured interval (default: every 30 minutes):
+When automatic cleaning is enabled, the application runs the user-enabled subset of the following five RAMMap operations sequentially at the configured interval (default: every 30 minutes). Each operation can be individually enabled or disabled in **Settings**:
 
 | # | RAMMap switch | Operation | Description |
 |---|---|---|---|

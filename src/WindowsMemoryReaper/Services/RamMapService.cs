@@ -5,7 +5,7 @@ using System.Threading.Tasks;
 namespace WindowsMemoryReaper.Services;
 
 /// <summary>
-/// Executes the five RAMMap memory-cleaning operations sequentially.
+/// Executes RAMMap memory-cleaning operations sequentially.
 /// Per spec sections 5, 6, 15 and 17.
 /// </summary>
 public sealed class RamMapService
@@ -13,10 +13,11 @@ public sealed class RamMapService
     /// <summary>Per-operation timeout. See spec section 15.</summary>
     public TimeSpan OperationTimeout { get; set; } = TimeSpan.FromSeconds(60);
 
-    /// <summary>Total timeout guard for an entire five-operation cycle.</summary>
+    /// <summary>Total timeout guard for an entire operation cycle.</summary>
     public TimeSpan CycleTimeout { get; set; } = TimeSpan.FromMinutes(5);
 
-    private static readonly string[] s_operations = ["-Ew", "-Es", "-Em", "-Et", "-E0"];
+    /// <summary>Canonical default: all five operations in order.</summary>
+    public static readonly string[] DefaultOperations = ["-Ew", "-Es", "-Em", "-Et", "-E0"];
 
     private readonly object _gate = new();
     private bool _running;
@@ -28,10 +29,12 @@ public sealed class RamMapService
     }
 
     /// <summary>
-    /// Runs a full cleanup cycle, launching each RAMMap operation and waiting for
+    /// Runs a cleanup cycle, launching each RAMMap operation and waiting for
     /// it to complete before starting the next. Never overlaps another cycle.
     /// </summary>
-    public async Task<CleanupResult> RunCleanupAsync(string? ramMapPath, CancellationToken cancellationToken = default)
+    /// <param name="operations">Ordered operation switches to execute.</param>
+    public async Task<CleanupResult> RunCleanupAsync(string? ramMapPath, IReadOnlyList<string>? operations,
+        CancellationToken cancellationToken = default)
     {
         lock (_gate)
         {
@@ -44,7 +47,7 @@ public sealed class RamMapService
 
         try
         {
-            return await RunCoreAsync(ramMapPath, cancellationToken).ConfigureAwait(false);
+            return await RunCoreAsync(ramMapPath, operations, cancellationToken).ConfigureAwait(false);
         }
         finally
         {
@@ -55,7 +58,8 @@ public sealed class RamMapService
         }
     }
 
-    private async Task<CleanupResult> RunCoreAsync(string? ramMapPath, CancellationToken cancellationToken)
+    private async Task<CleanupResult> RunCoreAsync(string? ramMapPath, IReadOnlyList<string>? operations,
+        CancellationToken cancellationToken)
     {
         if (string.IsNullOrWhiteSpace(ramMapPath))
         {
@@ -67,13 +71,18 @@ public sealed class RamMapService
             return new CleanupResult(CleanupResultKind.RamMapNotFound, 0, "RAMMap64.exe could not be found.");
         }
 
+        if (operations is null || operations.Count == 0)
+        {
+            return new CleanupResult(CleanupResultKind.Failed, 0, "No RAMMap operations selected.");
+        }
+
         using var cycleCts = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
         cycleCts.CancelAfter(CycleTimeout);
 
         var completed = 0;
         try
         {
-            foreach (var operation in s_operations)
+            foreach (var operation in operations)
             {
                 var outcome = await RunOperationAsync(ramMapPath, operation, cycleCts.Token).ConfigureAwait(false);
                 if (outcome != OperationOutcome.Succeeded)

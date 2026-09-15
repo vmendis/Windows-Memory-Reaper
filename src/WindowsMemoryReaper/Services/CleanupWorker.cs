@@ -50,7 +50,18 @@ public static class CleanupWorker
                         continue;
                     }
 
-                    var result = await ramMap.RunCleanupAsync(request.RamMapPath, cancellationToken).ConfigureAwait(false);
+                    var ops = request.Operations;
+                    CleanupResult result;
+                    if (ops is null)
+                    {
+                        result = await ramMap.RunCleanupAsync(request.RamMapPath, RamMapService.DefaultOperations,
+                            cancellationToken).ConfigureAwait(false);
+                    }
+                    else
+                    {
+                        result = await ramMap.RunCleanupAsync(request.RamMapPath, ops,
+                            cancellationToken).ConfigureAwait(false);
+                    }
                     var reply = new CleanReply
                     {
                         Kind = result.Kind.ToString(),

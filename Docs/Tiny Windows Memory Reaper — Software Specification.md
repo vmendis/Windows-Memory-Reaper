@@ -112,7 +112,7 @@ This is preferable because memory cleaning is a system-wide operation and the MS
 
 ## 5. Cleaning operation
 
-Each automatic or manual cleaning cycle shall execute the following RAMMap operations:
+Each automatic or manual cleaning cycle shall execute the user-enabled subset of the following RAMMap operations, in canonical order. Individual operations can be enabled or disabled in Settings (section 27.A).
 
 ### Operation 1
 
@@ -251,7 +251,12 @@ Example:
 {
   "ramMapPath": "C:\\Tools\\Sysinternals\\RAMMap64.exe",
   "automaticCleaningEnabled": false,
-  "cleaningIntervalMinutes": 30
+  "cleaningIntervalMinutes": 30,
+  "operationEmptyWorkingSets": true,
+  "operationEmptySystemWorkingSet": true,
+  "operationEmptyModifiedPageList": true,
+  "operationEmptyStandbyList": true,
+  "operationEmptyPriority0StandbyList": true
 }
 ```
 
@@ -631,6 +636,13 @@ OFF
 
 Cleaning interval:
 30 minutes
+
+Operations:
+  [x] Empty Working Sets (-Ew)
+  [x] Empty System Working Set (-Es)
+  [x] Empty Modified Page List (-Em)
+  [x] Empty Standby List (-Et)
+  [x] Empty Priority 0 Standby List (-E0)
 ```
 
 The application should never begin automatic system-wide memory cleaning immediately on first launch.
@@ -641,17 +653,19 @@ Potential future features should be considered only after version 1 is proven re
 
 ### A. Configurable individual operations
 
-Allow the user to enable/disable:
+The user can enable/disable each of the five RAMMap operations independently via checkboxes in the Settings window:
 
 ```text
-[x] Empty Working Sets
-[x] Empty System Working Set
-[x] Empty Modified Page List
-[x] Empty Standby List
-[x] Empty Priority 0 Standby List
+[x] Empty Working Sets (-Ew)
+[x] Empty System Working Set (-Es)
+[x] Empty Modified Page List (-Em)
+[x] Empty Standby List (-Et)
+[x] Empty Priority 0 Standby List (-E0)
 ```
 
-This would be particularly valuable because the forum's testing is explicitly attempting to determine which individual operations provide the benefit and which combinations cause side effects.
+Enabled operations are always executed in canonical order (-Ew, -Es, -Em, -Et, -E0); disabled operations are skipped. The UI prevents disabling all five operations — the last enabled checkbox cannot be unchecked. Both manual "Clean Now" and automatic cleaning use the same enabled set from current settings.
+
+This feature is particularly valuable because the forum's testing is explicitly attempting to determine which individual operations provide the benefit and which combinations cause side effects.
 
 ### B. Memory-pressure trigger
 
@@ -735,6 +749,9 @@ Version 1 is considered complete when:
 19. No log files are created.
 20. RAMMap64.exe is not redistributed with the application.
 21. Failure of RAMMap does not crash the tray application.
+22. The user can enable/disable each RAMMap operation individually.
+23. At least one operation must remain enabled (UI prevents disabling all five).
+24. Manual and automatic cleaning both respect the enabled operations set.
 
 ## 29. Important disclaimer
 

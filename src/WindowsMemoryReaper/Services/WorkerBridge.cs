@@ -35,7 +35,8 @@ public sealed class WorkerBridge : IDisposable
     /// result. Fails fast when the user declines the elevation prompt. Cleanup
     /// requests are serialized so two cleanups can never overlap.
     /// </summary>
-    public async Task<CleanupResult> RunCleanupAsync(string ramMapPath, CancellationToken cancellationToken = default)
+    public async Task<CleanupResult> RunCleanupAsync(string ramMapPath, string[]? operations,
+        CancellationToken cancellationToken = default)
     {
         await _gate.WaitAsync(cancellationToken).ConfigureAwait(false);
         try
@@ -52,7 +53,7 @@ public sealed class WorkerBridge : IDisposable
                     "The cleanup worker is not connected.");
             }
 
-            var request = new CleanRequest { RamMapPath = ramMapPath ?? string.Empty };
+            var request = new CleanRequest { RamMapPath = ramMapPath ?? string.Empty, Operations = operations };
             var requestBytes = PipeProtocol.Serialize(request, PipeJsonContext.Default.CleanRequest);
             await PipeProtocol.WriteChunkAsync(_server, requestBytes, cancellationToken).ConfigureAwait(false);
 

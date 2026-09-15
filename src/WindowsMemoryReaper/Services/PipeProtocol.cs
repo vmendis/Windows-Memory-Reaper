@@ -10,6 +10,9 @@ namespace WindowsMemoryReaper.Services;
 public sealed class CleanRequest
 {
     public string RamMapPath { get; set; } = string.Empty;
+
+    /// <summary>Operations to perform in canonical order. Null = fallback to all five.</summary>
+    public string[]? Operations { get; set; }
 }
 
 /// <summary>Worker → tray: outcome of a cleanup cycle.</summary>

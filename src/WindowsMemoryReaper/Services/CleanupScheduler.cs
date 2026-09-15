@@ -9,7 +9,7 @@ namespace WindowsMemoryReaper.Services;
 /// </summary>
 public sealed class CleanupScheduler : IDisposable
 {
-    private readonly Func<string?, CancellationToken, Task<CleanupResult>> _clean;
+    private readonly Func<string?, string[], CancellationToken, Task<CleanupResult>> _clean;
     private readonly SettingsStore _settingsStore;
     private readonly object _gate = new();
 
@@ -22,7 +22,7 @@ public sealed class CleanupScheduler : IDisposable
     public event Action<CleanupResult>? CleanupCompleted;
 
     public CleanupScheduler(
-        Func<string?, CancellationToken, Task<CleanupResult>> clean,
+        Func<string?, string[], CancellationToken, Task<CleanupResult>> clean,
         SettingsStore settingsStore,
         AppSettings settings)
     {
@@ -105,7 +105,7 @@ public sealed class CleanupScheduler : IDisposable
                 settings = _settings;
             }
 
-            var result = await _clean(settings.RamMapPath, CancellationToken.None).ConfigureAwait(false);
+            var result = await _clean(settings.RamMapPath, settings.GetEnabledOperations(), CancellationToken.None).ConfigureAwait(false);
 
             // Re-arm (and thus set the new due time) before notifying, so the
             // tray refresh reads the next due time rather than the stale one.

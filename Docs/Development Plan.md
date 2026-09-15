@@ -135,6 +135,22 @@ Tray process (medium integrity, asInvoker)          Worker process (high integri
 - [x] Manually verified against acceptance criteria (§28) — see checklist below.
 - [x] Commit.
 
+### Step 11 — Configurable individual operations (spec §27.A)
+- [ ] `AppSettings` gains five bool properties (default `true`): `OperationEmptyWorkingSets` (-Ew),
+      `OperationEmptySystemWorkingSet` (-Es), `OperationEmptyModifiedPageList` (-Em),
+      `OperationEmptyStandbyList` (-Et), `OperationEmptyPriority0StandbyList` (-E0).
+- [ ] `AppSettings.GetEnabledOperations()` returns enabled switches in canonical order.
+- [ ] `CleanRequest.Operations` (`string[]?`) carries operations over the pipe; null = fallback to all five.
+- [ ] `RamMapService.RunCleanupAsync` accepts ordered operations list; empty/null → `Failed` with descriptive detail; does not throw.
+- [ ] `CleanupScheduler` delegate signature extended; passes `settings.GetEnabledOperations()` on timer fire.
+- [ ] `AppController` propagates operations on all clean paths (manual + automatic).
+- [ ] Settings window: "Operations to perform" section with five checkboxes between interval selector and status; window height ~470.
+- [ ] Last-box guard: unchecking the last enabled checkbox re-checks it (REQ-009).
+- [ ] Settings window "Clean Now" applies current (unsaved) checkbox state via `SaveTemporary()`.
+- [ ] JSON backward compatible: legacy files without the five fields load as all-true.
+- [ ] Build + regression test.
+- [ ] Commit.
+
 ---
 
 ## Scope guardrails (do NOT implement in v1)

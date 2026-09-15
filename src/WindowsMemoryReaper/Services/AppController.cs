@@ -62,7 +62,8 @@ public sealed class AppController : IDisposable
     private async Task CleanNowAsync()
     {
         ApplyIcon(AppStatus.Cleaning);
-        var result = await RunCleanCoreAsync(_settings.RamMapPath, CancellationToken.None).ConfigureAwait(true);
+        var result = await RunCleanCoreAsync(_settings.RamMapPath, _settings.GetEnabledOperations(),
+            CancellationToken.None).ConfigureAwait(true);
         HandleCleanupResult(result);
     }
 
@@ -70,7 +71,8 @@ public sealed class AppController : IDisposable
     /// Serializes every cleanup (manual and automatic) so two cleanups never
     /// overlap. Returns AlreadyRunning when another cleanup is in progress.
     /// </summary>
-    private async Task<CleanupResult> RunCleanCoreAsync(string? ramMapPath, CancellationToken cancellationToken)
+    private async Task<CleanupResult> RunCleanCoreAsync(string? ramMapPath, string[] operations,
+        CancellationToken cancellationToken)
     {
         if (!await _cleanGate.WaitAsync(0, cancellationToken).ConfigureAwait(false))
         {
@@ -79,7 +81,7 @@ public sealed class AppController : IDisposable
 
         try
         {
-            return await _bridge.RunCleanupAsync(ramMapPath ?? string.Empty, cancellationToken).ConfigureAwait(false);
+            return await _bridge.RunCleanupAsync(ramMapPath ?? string.Empty, operations, cancellationToken).ConfigureAwait(false);
         }
         finally
         {
