@@ -29,7 +29,7 @@ A lightweight Windows 11 system-tray utility that periodically reclaims RAM by i
 
 ## Installation
 
-1. Download `WindowsMemoryReaper.exe` from the [Releases](https://github.com/flight-sim-mendis/Windows-Memory-Reaper/releases) page.
+1. Download `WindowsMemoryReaper.exe` from the [Releases](https://github.com/vmendis/Windows-Memory-Reaper/releases) page.
 2. Place the EXE in any folder you like (it is fully portable).
 3. Download [RAMMap64.exe](https://learn.microsoft.com/en-us/sysinternals/downloads/rammap) from Sysinternals and note its location.
 4. Double-click `WindowsMemoryReaper.exe` to start.
@@ -45,7 +45,7 @@ The application lives entirely in the **system tray** (notification area). Right
 
 | Menu item | Action |
 |---|---|
-| **Clean now** | Runs a full five-operation RAMMap cleanup immediately |
+| **Clean now** | Runs the user-enabled set of RAMMap operations immediately |
 | **Automatic cleaning** | Toggles automatic cleaning on/off; displays the current interval and next scheduled time |
 | **Settings** | Opens the settings window to configure the RAMMap path and cleaning interval |
 | **Exit** | Shuts down the application (waits for any in-progress cleanup to finish) |
